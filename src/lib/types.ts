@@ -8,6 +8,7 @@ export interface OnboardingData {
   guestKids: string;
   guestAdults: string;
   budget: BudgetLevel;
+  budgetAmount?: number;
   theme: string;
   eventDate?: string;
 }
@@ -31,3 +32,20 @@ export type OrganizerLevel =
   | "Cadete Espacial"
   | "Piloto de Fiestas"
   | "Comandante del Festejo";
+
+export interface InvitationData {
+  address: string;
+  timeFrom: string; // "HH:mm"
+  timeTo: string;   // "HH:mm"
+  message?: string;
+  rsvpPhone?: string;
+}
+
+export interface Party {
+  id: string;
+  createdAt: number;
+  onboarding: OnboardingData;
+  tasks: Task[];
+  spentBudget: number;
+  invitation?: InvitationData;
+}

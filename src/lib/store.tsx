@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { OnboardingData, Task } from "./types";
+import type { OnboardingData, Task, Party, InvitationData } from "./types";
 
 const STORAGE_KEY = "cumple-estelar-data";
 
@@ -17,27 +17,48 @@ const DEFAULT_TASKS: Task[] = [
   { id: "10", title: "Armar cronograma del día", description: "Horarios de juegos, comida y torta", status: "pending", priority: "medium", daysBeforeEvent: 5, category: "other", cost: 0 },
 ];
 
+const createDefaultTasks = (): Task[] => DEFAULT_TASKS.map((t) => ({ ...t }));
+
+// ---- Pure helpers (usable from any component) ----
+export function getProgress(tasks: Task[]): number {
+  if (!tasks.length) return 0;
+  const done = tasks.filter((t) => t.status === "done").length;
+  return Math.round((done / tasks.length) * 100);
+}
+
+export function getOrganizerLevel(tasks: Task[]): string {
+  const progress = getProgress(tasks);
+  if (progress >= 70) return "Comandante del Festejo";
+  if (progress >= 35) return "Piloto de Fiestas";
+  return "Cadete Espacial";
+}
+
+/** A party is "active" while its date hasn't passed (or it has no date yet). */
+export function isPartyActive(party: Party): boolean {
+  if (!party.onboarding.eventDate) return true;
+  const end = new Date(party.onboarding.eventDate + "T23:59:59");
+  return end.getTime() >= Date.now();
+}
+
 interface AppState {
   isLoaded: boolean;
-  onboarding: OnboardingData | null;
-  tasks: Task[];
-  spentBudget: number;
-  setOnboarding: (data: OnboardingData) => void;
-  toggleTask: (id: string) => void;
-  addTask: (task: Omit<Task, "id" | "status">) => void;
-  updateTask: (id: string, updates: Partial<Task>) => void;
-  deleteTask: (id: string) => void;
-  getProgress: () => number;
-  getOrganizerLevel: () => string;
+  parties: Party[];
+  getParty: (id: string) => Party | undefined;
+  addParty: (data: OnboardingData) => string;
+  deleteParty: (id: string) => void;
+  updateOnboarding: (partyId: string, data: OnboardingData) => void;
+  updateInvitation: (partyId: string, data: InvitationData) => void;
+  toggleTask: (partyId: string, taskId: string) => void;
+  addTask: (partyId: string, task: Omit<Task, "id" | "status">) => void;
+  updateTask: (partyId: string, taskId: string, updates: Partial<Task>) => void;
+  deleteTask: (partyId: string, taskId: string) => void;
 }
 
 const AppContext = createContext<AppState | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isLoaded, setIsLoaded] = useState(false);
-  const [onboarding, setOnboardingState] = useState<OnboardingData | null>(null);
-  const [tasks, setTasks] = useState<Task[]>(DEFAULT_TASKS);
-  const [spentBudget, setSpentBudget] = useState(0);
+  const [parties, setParties] = useState<Party[]>([]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -45,16 +66,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const saved = await AsyncStorage.getItem(STORAGE_KEY);
         if (saved) {
           const data = JSON.parse(saved);
-          if (data.onboarding) setOnboardingState(data.onboarding);
-          if (data.tasks) {
-            // Migrate old tasks that had `xp` instead of `cost`
-            const migratedTasks = data.tasks.map((t: any) => ({
-              ...t,
-              cost: t.cost ?? t.xp ?? 0,
-            }));
-            setTasks(migratedTasks);
+          if (Array.isArray(data.parties)) {
+            setParties(data.parties.map(normalizeParty));
+          } else if (data.onboarding) {
+            // Migrate legacy single-party data into one party.
+            const migrated: Party = normalizeParty({
+              id: Date.now().toString(),
+              createdAt: Date.now(),
+              onboarding: data.onboarding,
+              tasks: data.tasks,
+              spentBudget: data.spentBudget,
+            });
+            setParties([migrated]);
+            await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ parties: [migrated] }));
           }
-          if (data.spentBudget) setSpentBudget(data.spentBudget);
         }
       } catch (e) {
         console.error("Failed to load data", e);
@@ -65,100 +90,126 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     loadData();
   }, []);
 
-  const persist = async (update: Partial<{ onboarding: OnboardingData | null; tasks: Task[]; spentBudget: number }>) => {
-    try {
-      const currentString = await AsyncStorage.getItem(STORAGE_KEY);
-      const current = currentString ? JSON.parse(currentString) : {};
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ ...current, ...update }));
-    } catch (e) {
-      console.error("Failed to save data", e);
-    }
+  const persist = (next: Party[]) => {
+    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ parties: next })).catch((e) =>
+      console.error("Failed to save data", e)
+    );
   };
 
-  const setOnboarding = (data: OnboardingData) => {
-    setOnboardingState(data);
-    persist({ onboarding: data });
+  const commit = (next: Party[]) => {
+    setParties(next);
+    persist(next);
   };
 
-  const toggleTask = (id: string) => {
-    setTasks((prev) => {
+  const getParty = (id: string) => parties.find((p) => p.id === id);
+
+  const addParty = (data: OnboardingData): string => {
+    const id = Date.now().toString();
+    const party: Party = { id, createdAt: Date.now(), onboarding: data, tasks: createDefaultTasks(), spentBudget: 0 };
+    setParties((prev) => {
+      const next = [party, ...prev];
+      persist(next);
+      return next;
+    });
+    return id;
+  };
+
+  const deleteParty = (id: string) => {
+    setParties((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      persist(next);
+      return next;
+    });
+  };
+
+  const updateOnboarding = (partyId: string, data: OnboardingData) => {
+    setParties((prev) => {
+      const next = prev.map((p) => (p.id === partyId ? { ...p, onboarding: data } : p));
+      persist(next);
+      return next;
+    });
+  };
+
+  const updateInvitation = (partyId: string, data: InvitationData) => {
+    setParties((prev) => {
+      const next = prev.map((p) => (p.id === partyId ? { ...p, invitation: data } : p));
+      persist(next);
+      return next;
+    });
+  };
+
+  const updatePartyTasks = (
+    partyId: string,
+    fn: (party: Party) => { tasks: Task[]; spentBudget: number }
+  ) => {
+    setParties((prev) => {
+      const next = prev.map((p) => (p.id === partyId ? { ...p, ...fn(p) } : p));
+      persist(next);
+      return next;
+    });
+  };
+
+  const toggleTask = (partyId: string, taskId: string) => {
+    updatePartyTasks(partyId, (p) => {
       let costChange = 0;
-      const updated = prev.map((t) => {
-        if (t.id === id) {
+      const tasks = p.tasks.map((t) => {
+        if (t.id === taskId) {
           if (t.status === "done") {
             costChange = -t.cost;
             return { ...t, status: "pending" as const };
-          } else {
-            costChange = t.cost;
-            return { ...t, status: "done" as const };
           }
+          costChange = t.cost;
+          return { ...t, status: "done" as const };
         }
         return t;
       });
-      
-      if (costChange !== 0) {
-        setSpentBudget((spent) => {
-          const newSpent = Math.max(0, spent + costChange);
-          persist({ spentBudget: newSpent });
-          return newSpent;
-        });
-      }
-      persist({ tasks: updated });
-      return updated;
+      return { tasks, spentBudget: Math.max(0, p.spentBudget + costChange) };
     });
   };
 
-  const addTask = (task: Omit<Task, "id" | "status">) => {
-    setTasks((prev) => {
+  const addTask = (partyId: string, task: Omit<Task, "id" | "status">) => {
+    updatePartyTasks(partyId, (p) => {
       const newTask: Task = { ...task, id: Date.now().toString(), status: "pending" };
-      const updated = [...prev, newTask];
-      persist({ tasks: updated });
-      return updated;
+      return { tasks: [...p.tasks, newTask], spentBudget: p.spentBudget };
     });
   };
 
-  const updateTask = (id: string, updates: Partial<Task>) => {
-    setTasks((prev) => {
-      const updated = prev.map((t) => (t.id === id ? { ...t, ...updates } : t));
-      persist({ tasks: updated });
-      return updated;
+  const updateTask = (partyId: string, taskId: string, updates: Partial<Task>) => {
+    updatePartyTasks(partyId, (p) => ({
+      tasks: p.tasks.map((t) => (t.id === taskId ? { ...t, ...updates } : t)),
+      spentBudget: p.spentBudget,
+    }));
+  };
+
+  const deleteTask = (partyId: string, taskId: string) => {
+    updatePartyTasks(partyId, (p) => {
+      const target = p.tasks.find((t) => t.id === taskId);
+      const spentBudget =
+        target && target.status === "done" ? Math.max(0, p.spentBudget - target.cost) : p.spentBudget;
+      return { tasks: p.tasks.filter((t) => t.id !== taskId), spentBudget };
     });
-  };
-
-  const deleteTask = (id: string) => {
-    setTasks((prev) => {
-      const taskToDelete = prev.find((t) => t.id === id);
-      const updated = prev.filter((t) => t.id !== id);
-      
-      if (taskToDelete && taskToDelete.status === "done") {
-        setSpentBudget((spent) => {
-          const newSpent = Math.max(0, spent - taskToDelete.cost);
-          persist({ spentBudget: newSpent });
-          return newSpent;
-        });
-      }
-      persist({ tasks: updated });
-      return updated;
-    });
-  };
-
-  const getProgress = () => {
-    const done = tasks.filter((t) => t.status === "done").length;
-    return Math.round((done / tasks.length) * 100);
-  };
-
-  const getOrganizerLevel = () => {
-    const progress = getProgress();
-    if (progress >= 70) return "Comandante del Festejo";
-    if (progress >= 35) return "Piloto de Fiestas";
-    return "Cadete Espacial";
   };
 
   return (
-    <AppContext.Provider value={{ isLoaded, onboarding, tasks, spentBudget, setOnboarding, toggleTask, addTask, updateTask, deleteTask, getProgress, getOrganizerLevel }}>
+    <AppContext.Provider
+      value={{ isLoaded, parties, getParty, addParty, deleteParty, updateOnboarding, updateInvitation, toggleTask, addTask, updateTask, deleteTask }}
+    >
       {children}
     </AppContext.Provider>
   );
+}
+
+/** Ensure a party loaded from storage has the expected shape (handles legacy `xp` cost). */
+function normalizeParty(p: any): Party {
+  return {
+    id: String(p.id ?? Date.now().toString()),
+    createdAt: typeof p.createdAt === "number" ? p.createdAt : Date.now(),
+    onboarding: p.onboarding,
+    tasks: Array.isArray(p.tasks)
+      ? p.tasks.map((t: any) => ({ ...t, cost: t.cost ?? t.xp ?? 0 }))
+      : createDefaultTasks(),
+    spentBudget: typeof p.spentBudget === "number" ? p.spentBudget : 0,
+  };
 }
 
 export function useApp() {

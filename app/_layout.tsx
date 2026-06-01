@@ -17,8 +17,12 @@ export default function RootLayout() {
           }}
         >
           <Stack.Screen name="index" />
+          <Stack.Screen name="home" />
           <Stack.Screen name="onboarding" />
-          <Stack.Screen name="dashboard" />
+          <Stack.Screen name="party/[id]" />
+          <Stack.Screen name="invitation/[id]" />
+          <Stack.Screen name="edit/[id]" />
+          <Stack.Screen name="ideas/[id]" />
         </Stack>
       </View>
     </AppProvider>
