@@ -1,0 +1,18 @@
+{
+  "name": "Cumple Estelar",
+  "short_name": "Cumple Estelar",
+  "description": "Organiza cumpleaños estelares: invitaciones, ideas y planificación de la fiesta.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#080c1a",
+  "theme_color": "#080c1a",
+  "lang": "es",
+  "dir": "ltr",
+  "icons": [
+    { "src": "/pwa-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/pwa-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/pwa-maskable-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -1,7 +1,8 @@
 {
   "expo": {
-    "name": "mobile-app",
-    "slug": "mobile-app",
+    "name": "Cumple Estelar",
+    "slug": "cumple-estelar",
+    "scheme": "cumpleestelar",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -24,7 +25,9 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "themeColor": "#080c1a",
+      "backgroundColor": "#080c1a"
     },
     "plugins": [
       "expo-router"

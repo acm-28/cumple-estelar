@@ -2,7 +2,9 @@ import React from "react";
 import { Stack } from "expo-router";
 import { AppProvider } from "@/lib/store";
 import { StatusBar } from "expo-status-bar";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
+// Componente de Vercel Web Analytics para React (NO usar /next: requiere Next.js).
+import { Analytics } from "@vercel/analytics/react";
 import tw from "twrnc";
 
 export default function RootLayout() {
@@ -24,6 +26,8 @@ export default function RootLayout() {
           <Stack.Screen name="edit/[id]" />
           <Stack.Screen name="ideas/[id]" />
         </Stack>
+        {/* Solo en web: en nativo no aplica y evita tocar APIs de navegador. */}
+        {Platform.OS === "web" && <Analytics />}
       </View>
     </AppProvider>
   );
